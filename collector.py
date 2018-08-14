@@ -21,16 +21,30 @@ POST_FORMAT = re.compile(
 
 
 def open_page(url):
-    while True:
-        try:
-            resp = requests.get(url)
-            # 小百合一个大坑，网页head里说是gb2312编码，而内容实则会有其编码之外的字符
-            # 干脆统一改成gb18030编码，反正这个兼容前者
-            encoding = 'gb18030' if resp.encoding == 'gb2312' else resp.encoding
-            text = resp.content.decode(encoding, errors='ignore')
-            return BeautifulSoup(text, 'lxml')
-        except requests.exceptions.ConnectionError:
-            time.sleep(0.5)
+    try:
+        exception_count = 0
+        exception_limit = 16
+        while True:
+            try:
+                resp = requests.get(url)
+                if not resp:
+                    raise requests.exceptions.ConnectionError()
+                # 小百合一个大坑，网页head里说是gb2312编码
+                # 然而实际上，其内容会有gb2312编码之外的字符
+                # 索性直接用gb18030编码，反正这个兼容前者
+                encoding = resp.encoding
+                if encoding == 'gb2312':
+                    encoding = 'gb18030'
+                text = resp.content.decode(encoding, errors='ignore')
+                # 用html5lib，虽然慢，但容错性最好，毕竟小百合的页面太坑
+                return BeautifulSoup(text, 'html5lib')
+            except requests.exceptions.ConnectionError:
+                exception_limit += 1
+                if exception_count >= exception_limit:
+                    raise
+                time.sleep(0.5)
+    except Exception:
+        logging.error('打开页面失败：\n%s\n%s' % (url, traceback.format_exc()))
 
 
 def generate_board_url(board_name, t_mode=True, start_from=None):
@@ -68,18 +82,18 @@ def docs_of_board(board_name):
             texts = [post.textarea.text.replace('\r\n', '\n') for post in
                      open_page(url).find_all('table', attrs={'class': 'main'})]
         except Exception:
-            logging.error('获取帖子页面失败：\n%s\n%s' %
+            logging.error('无法识别帖子页面内容，已跳过：\n%s\n%s' %
                           (url, traceback.format_exc()))
             continue
         if not len(texts):
-            logging.error('帖子为空：\n%s' % url)
+            logging.error('帖子为空，已跳过：\n%s' % url)
             continue
 
         content = '\n'.join(texts)
 
-        create_info = POST_FORMAT.search(texts[0])
-        update_info = POST_FORMAT.search(texts[-1])
-        if create_info and update_info:
+        try:
+            create_info = POST_FORMAT.search(texts[0])
+            update_info = POST_FORMAT.search(texts[-1])
             creator = create_info.group(1)
             title = create_info.group(2)
             create_time = int(parse_time(create_info.group(3)).timestamp())
@@ -87,11 +101,11 @@ def docs_of_board(board_name):
             end = create_info.end()
             logging.info('帖子解析成功：\n' +
                          content[end:end + 256].replace('\n', ' '))
-        else:
+        except Exception:
             creator = title = ''
             update_time = create_time = 0
-            logging.error('无法完全解析的帖子格式：\n' + url)
-
+            logging.error('无法完全解析的帖子格式：\n%s\n%s' %
+                          (url, content[0:256]))
         result = (title, creator, create_time, update_time, url, content)
         yield result
     logging.info('“%s”讨论区的帖子已经全部遍历完成' % board_name)
@@ -103,9 +117,9 @@ if __name__ == '__main__':
     formatter = logging.Formatter('>>> %(levelname)s %(asctime)s\n%(message)s')
 
     logging_targets = ((logging.INFO, logging.StreamHandler(sys.stdout)),
-                      (logging.INFO, logging.FileHandler('info.log')),
-                      (logging.WARNING, logging.StreamHandler(sys.stderr)),
-                      (logging.WARNING, logging.FileHandler('error.log')))
+                       (logging.INFO, logging.FileHandler('info.log')),
+                       (logging.WARNING, logging.StreamHandler(sys.stderr)),
+                       (logging.WARNING, logging.FileHandler('error.log')))
     for target in logging_targets:
         target[1].setLevel(target[0])
         target[1].setFormatter(formatter)
@@ -119,6 +133,6 @@ if __name__ == '__main__':
         description = td_list[3].text[2:]
         boards.append((name, category, description))
 
-    database.save_boards(boards)
+    database.renew_boards(boards)
     for board in boards:
         database.save_board_docs(board[0], docs_of_board(board[0]))

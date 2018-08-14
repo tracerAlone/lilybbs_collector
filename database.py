@@ -3,9 +3,11 @@ import sqlite3
 import traceback
 
 DATA_BASE = 'lilybbs.db'
+INSERT_COMMIT_LIMIT = 64
+CONTINUAL_EXCEPTION_LIMIT = 8
 
 
-def save_boards(boards):
+def renew_boards(boards):
     conn = sqlite3.connect(DATA_BASE)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS boards (
@@ -20,9 +22,9 @@ def save_boards(boards):
     c.execute('DELETE FROM boards')
     c.executemany('INSERT INTO boards VALUES (?,?,?)', boards)
 
-    for removed_board in old_boards - new_boards:
-        c.execute('DROP TABLE IF EXISTS board_%s' % removed_board)
-        logging.info('移除了讨论区：' + removed_board)
+    removed_boards = old_boards - new_boards
+    if removed_boards:
+        logging.error('发现有讨论区已经被移除：' + str(sorted(removed_boards)))
 
     for added_board in new_boards - old_boards:
         c.execute('''CREATE TABLE IF NOT EXISTS board_%s (
@@ -44,13 +46,22 @@ def save_board_docs(board_name, docs):
     c = conn.cursor()
     sql = 'INSERT OR REPLACE INTO board_%s VALUES (?,?,?,?,?,?)' % board_name
     try:
+        insert_counter = 0
+        exception_count = 0
         for doc in docs:
             try:
                 c.execute(sql, doc)
+                insert_counter = (insert_counter + 1) % INSERT_COMMIT_LIMIT
+                if insert_counter == 0:
+                    conn.commit()
                 logging.info('保存到帖子成功')
+                exception_count = 0
             except Exception:
+                exception_count += 1
                 logging.error('保存帖子到数据库时出错：\n%s\n%s' %
                               (doc[3], traceback.format_exc()))
+                if exception_count >= CONTINUAL_EXCEPTION_LIMIT:
+                    raise
     except:
         logging.error('意外退出数据库\n' + traceback.format_exc())
         raise
