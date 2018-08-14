@@ -28,7 +28,7 @@ def open_page(url):
             try:
                 resp = requests.get(url)
                 if not resp:
-                    raise requests.exceptions.ConnectionError()
+                    raise Exception('页面请求失败')
                 # 小百合一个大坑，网页head里说是gb2312编码
                 # 然而实际上，其内容会有gb2312编码之外的字符
                 # 索性直接用gb18030编码，反正这个兼容前者
@@ -38,8 +38,8 @@ def open_page(url):
                 text = resp.content.decode(encoding, errors='ignore')
                 # 用html5lib，虽然慢，但容错性最好，毕竟小百合的页面太坑
                 return BeautifulSoup(text, 'html5lib')
-            except requests.exceptions.ConnectionError:
-                exception_limit += 1
+            except Exception:
+                exception_count += 1
                 if exception_count >= exception_limit:
                     raise
                 time.sleep(0.5)
