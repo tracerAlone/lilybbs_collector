@@ -2,11 +2,11 @@ import logging
 import sys
 import time
 import re
-import requests
 import traceback
-from dateutil.parser import parse as parse_time
 from urllib.parse import urljoin
 
+import requests
+from dateutil.parser import parse as parse_time
 from bs4 import BeautifulSoup
 
 import database
@@ -16,7 +16,7 @@ ENTRY_URL = DOMAIN + 'bbsall'
 POST_FORMAT = re.compile(
     r'发信人: (\S+) .+\n'
     r'标\s+题: (.+)\n'
-    r'发信站: \S+ \(([a-zA-Z0-9: ]+)\)',
+    r'发信站: .+ \(([a-zA-Z0-9: ]+)\)',
     re.M)
 
 
@@ -111,7 +111,7 @@ def docs_of_board(board_name):
     logging.info('“%s”讨论区的帖子已经全部遍历完成' % board_name)
 
 
-if __name__ == '__main__':
+def main():
     logger = logging.getLogger()
     logger.setLevel(logging.NOTSET)
     formatter = logging.Formatter('>>> %(levelname)s %(asctime)s\n%(message)s')
@@ -136,3 +136,7 @@ if __name__ == '__main__':
     database.renew_boards(boards)
     for board in boards:
         database.save_board_docs(board[0], docs_of_board(board[0]))
+
+
+if __name__ == '__main__':
+    main()
